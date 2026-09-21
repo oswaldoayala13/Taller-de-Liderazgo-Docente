@@ -1396,29 +1396,51 @@ body {
 // VARIABLES
 // ============================================================
 
-const datos =
-  window.datosDashboard;
+const datos = window.datosDashboard || [];
 
-const municipios =
-  window.municipiosDashboard;
-
-const VERDE =
-  "#15956f";
-
-const GRIS =
-  "#64748b";
-
-
-// ============================================================
-// FILTROS
-// ============================================================
+const VERDE = "#15956f";
+const GRIS = "#64748b";
 
 const selectorFecha = document.getElementById("filtroFecha");
 const selectorFacilitador = document.getElementById("filtroFacilitador");
 const selectorDepartamento = document.getElementById("filtroDepartamento");
 const selectorMunicipio = document.getElementById("filtroMunicipio");
 
-function llenarSelector(selector, valores, textoTodos) {
+
+// ============================================================
+// FUNCIONES AUXILIARES DE FILTROS
+// ============================================================
+
+function valorFiltro(selector) {
+  return selector.value || "Todos";
+}
+
+function cumple(valor, seleccionado) {
+  return seleccionado === "Todos" || valor === seleccionado;
+}
+
+function limpiarValor(valor) {
+  if (valor === null || valor === undefined) return "";
+  return String(valor).trim();
+}
+
+function valoresUnicos(arreglo, variable) {
+  return [...new Set(
+    arreglo
+      .map(function(d) {
+        return limpiarValor(d[variable]);
+      })
+      .filter(function(v) {
+        return v !== "" && v.toLowerCase() !== "na" && v.toLowerCase() !== "null";
+      })
+  )].sort(function(a, b) {
+    return a.localeCompare(b, "es");
+  });
+}
+
+function llenarSelector(selector, valores, textoTodos, formatear) {
+
+  const valorActual = selector.value || "Todos";
 
   selector.innerHTML = "";
 
@@ -1430,79 +1452,50 @@ function llenarSelector(selector, valores, textoTodos) {
   valores.forEach(function(valor) {
     const opcion = document.createElement("option");
     opcion.value = valor;
-    opcion.textContent = valor;
+    opcion.textContent = formatear ? formatear(valor) : valor;
     selector.appendChild(opcion);
   });
-}
 
-function actualizarMunicipios() {
-
-  const departamento = selectorDepartamento.value;
-
-  const municipiosFiltrados =
-    departamento === "Todos"
-      ? municipios
-      : [...new Set(
-          datos
-            .filter(function(d) {
-              return d.depto_label === departamento;
-            })
-            .map(function(d) {
-              return d.municipio_label;
-            })
-            .filter(function(v) {
-              return v !== null && v !== undefined && v !== "";
-            })
-        )].sort();
-
-  const municipioAnterior = selectorMunicipio.value;
-
-  llenarSelector(selectorMunicipio, municipiosFiltrados, "Todos");
-
-  if (municipiosFiltrados.includes(municipioAnterior)) {
-    selectorMunicipio.value = municipioAnterior;
+  if (valores.includes(valorActual)) {
+    selector.value = valorActual;
+  } else {
+    selector.value = "Todos";
   }
 }
 
-llenarSelector(selectorFecha, fechasDashboard, "Todas");
-llenarSelector(selectorFacilitador, facilitadoresDashboard, "Todos");
-llenarSelector(selectorDepartamento, departamentosDashboard, "Todos");
-llenarSelector(selectorMunicipio, municipiosDashboard, "Todos");
-
-selectorFecha.addEventListener("change", actualizarDashboard);
-selectorFacilitador.addEventListener("change", actualizarDashboard);
-
-selectorDepartamento.addEventListener("change", function() {
-  actualizarMunicipios();
-  actualizarDashboard();
-});
-
-selectorMunicipio.addEventListener("change", actualizarDashboard);
 
 // ============================================================
-// DATOS FILTRADOS
+// FILTROS RELACIONADOS
+//
+// Cada filtro se calcula usando los otros tres filtros activos.
+// De esta manera Fecha, Facilitador, Departamento y Municipio
+// quedan completamente vinculados entre sí.
 // ============================================================
 
-function obtenerDatosFiltrados() {
+function registrosCompatibles(excluir) {
 
-  const fecha = selectorFecha.value;
-  const facilitador = selectorFacilitador.value;
-  const departamento = selectorDepartamento.value;
-  const municipio = selectorMunicipio.value;
+  const fecha = valorFiltro(selectorFecha);
+  const facilitador = valorFiltro(selectorFacilitador);
+  const departamento = valorFiltro(selectorDepartamento);
+  const municipio = valorFiltro(selectorMunicipio);
 
   return datos.filter(function(d) {
 
     const cumpleFecha =
-      fecha === "Todos" || d.fecha_taller === fecha;
+      excluir === "fecha" ||
+      cumple(limpiarValor(d.fecha_taller), fecha);
 
     const cumpleFacilitador =
-      facilitador === "Todos" || d.facilitador === facilitador;
+      excluir === "facilitador" ||
+      cumple(limpiarValor(d.facilitador), facilitador);
 
     const cumpleDepartamento =
-      departamento === "Todos" || d.depto_label === departamento;
+      excluir === "departamento" ||
+      cumple(limpiarValor(d.depto_label), departamento);
 
     const cumpleMunicipio =
-      municipio === "Todos" || d.municipio_label === municipio;
+      excluir === "municipio" ||
+      cumple(limpiarValor(d.municipio_label), municipio);
 
     return (
       cumpleFecha &&
@@ -1512,6 +1505,216 @@ function obtenerDatosFiltrados() {
     );
   });
 }
+
+function actualizarFiltrosRelacionados() {
+
+  // Guardamos los valores actuales.
+  const fechaActual = valorFiltro(selectorFecha);
+  const facilitadorActual = valorFiltro(selectorFacilitador);
+  const departamentoActual = valorFiltro(selectorDepartamento);
+  const municipioActual = valorFiltro(selectorMunicipio);
+
+  // ----------------------------------------------------------
+  // 1. Fecha: depende de Facilitador + Departamento + Municipio
+  // ----------------------------------------------------------
+  const datosFecha = registrosCompatibles("fecha");
+  const fechas = valoresUnicos(datosFecha, "fecha_taller");
+
+  llenarSelector(
+    selectorFecha,
+    fechas,
+    "Todas",
+    function(fecha) {
+      const partes = fecha.split("-");
+      return partes.length === 3
+        ? `${partes[2]}/${partes[1]}/${partes[0]}`
+        : fecha;
+    }
+  );
+
+  // ----------------------------------------------------------
+  // 2. Facilitador: depende de Fecha + Departamento + Municipio
+  // ----------------------------------------------------------
+  const datosFacilitador = registrosCompatibles("facilitador");
+  const facilitadores = valoresUnicos(datosFacilitador, "facilitador");
+
+  llenarSelector(
+    selectorFacilitador,
+    facilitadores,
+    "Todos"
+  );
+
+  // ----------------------------------------------------------
+  // 3. Departamento: depende de Fecha + Facilitador + Municipio
+  // ----------------------------------------------------------
+  const datosDepartamento = registrosCompatibles("departamento");
+  const departamentos = valoresUnicos(datosDepartamento, "depto_label");
+
+  llenarSelector(
+    selectorDepartamento,
+    departamentos,
+    "Todos"
+  );
+
+  // ----------------------------------------------------------
+  // 4. Municipio: depende de Fecha + Facilitador + Departamento
+  // ----------------------------------------------------------
+  const datosMunicipio = registrosCompatibles("municipio");
+  const municipios = valoresUnicos(datosMunicipio, "municipio_label");
+
+  llenarSelector(
+    selectorMunicipio,
+    municipios,
+    "Todos"
+  );
+
+  // ----------------------------------------------------------
+  // Segunda pasada para resolver cualquier selección que haya
+  // quedado inválida después de actualizar otro selector.
+  // ----------------------------------------------------------
+  const valoresDespues = [
+    valorFiltro(selectorFecha),
+    valorFiltro(selectorFacilitador),
+    valorFiltro(selectorDepartamento),
+    valorFiltro(selectorMunicipio)
+  ];
+
+  if (
+    valoresDespues[0] !== fechaActual ||
+    valoresDespues[1] !== facilitadorActual ||
+    valoresDespues[2] !== departamentoActual ||
+    valoresDespues[3] !== municipioActual
+  ) {
+    actualizarFiltrosRelacionadosSegundaPasada();
+  }
+}
+
+function actualizarFiltrosRelacionadosSegundaPasada() {
+
+  const configuracion = [
+    {
+      selector: selectorFecha,
+      variable: "fecha_taller",
+      excluir: "fecha",
+      todos: "Todas",
+      formatear: function(fecha) {
+        const partes = fecha.split("-");
+        return partes.length === 3
+          ? `${partes[2]}/${partes[1]}/${partes[0]}`
+          : fecha;
+      }
+    },
+    {
+      selector: selectorFacilitador,
+      variable: "facilitador",
+      excluir: "facilitador",
+      todos: "Todos"
+    },
+    {
+      selector: selectorDepartamento,
+      variable: "depto_label",
+      excluir: "departamento",
+      todos: "Todos"
+    },
+    {
+      selector: selectorMunicipio,
+      variable: "municipio_label",
+      excluir: "municipio",
+      todos: "Todos"
+    }
+  ];
+
+  configuracion.forEach(function(item) {
+    const compatibles = registrosCompatibles(item.excluir);
+    const opciones = valoresUnicos(compatibles, item.variable);
+
+    llenarSelector(
+      item.selector,
+      opciones,
+      item.todos,
+      item.formatear
+    );
+  });
+}
+
+
+// ============================================================
+// DATOS FILTRADOS
+// ============================================================
+
+function obtenerDatosFiltrados() {
+
+  const fecha = valorFiltro(selectorFecha);
+  const facilitador = valorFiltro(selectorFacilitador);
+  const departamento = valorFiltro(selectorDepartamento);
+  const municipio = valorFiltro(selectorMunicipio);
+
+  return datos.filter(function(d) {
+
+    return (
+      cumple(limpiarValor(d.fecha_taller), fecha) &&
+      cumple(limpiarValor(d.facilitador), facilitador) &&
+      cumple(limpiarValor(d.depto_label), departamento) &&
+      cumple(limpiarValor(d.municipio_label), municipio)
+    );
+  });
+}
+
+
+// ============================================================
+// INICIALIZAR FILTROS
+// ============================================================
+
+llenarSelector(
+  selectorFecha,
+  valoresUnicos(datos, "fecha_taller"),
+  "Todas",
+  function(fecha) {
+    const partes = fecha.split("-");
+    return partes.length === 3
+      ? `${partes[2]}/${partes[1]}/${partes[0]}`
+      : fecha;
+  }
+);
+
+llenarSelector(
+  selectorFacilitador,
+  valoresUnicos(datos, "facilitador"),
+  "Todos"
+);
+
+llenarSelector(
+  selectorDepartamento,
+  valoresUnicos(datos, "depto_label"),
+  "Todos"
+);
+
+llenarSelector(
+  selectorMunicipio,
+  valoresUnicos(datos, "municipio_label"),
+  "Todos"
+);
+
+
+// ============================================================
+// EVENTOS
+// ============================================================
+
+[
+  selectorFecha,
+  selectorFacilitador,
+  selectorDepartamento,
+  selectorMunicipio
+].forEach(function(selector) {
+
+  selector.addEventListener("change", function() {
+
+    actualizarFiltrosRelacionados();
+    actualizarDashboard();
+
+  });
+
+});
 
 
 // ============================================================
@@ -1525,35 +1728,24 @@ function contar(
 
   const resultado = {};
 
-
   arreglo.forEach(
     function(d) {
 
-      let valor =
-        d[variable];
-
+      let valor = d[variable];
 
       if (
         valor === null ||
         valor === undefined ||
         valor === ""
       ) {
-
-        valor =
-          "Sin dato";
-
+        valor = "Sin dato";
       }
 
-
       resultado[valor] =
-        (
-          resultado[valor] ||
-          0
-        ) + 1;
+        (resultado[valor] || 0) + 1;
 
     }
   );
-
 
   return resultado;
 
